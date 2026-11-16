@@ -182,12 +182,12 @@ footer{position:relative;z-index:2;text-align:center;color:#fff;font-weight:800;
   <div id="rvBody"></div>
   <div class="actions">
     <button type="button" class="btn sec" id="rvEdit">✏️ Upravit objednávku</button>
-    <button type="button" class="btn main" id="rvOk" style="width:auto;flex:1">✅ Vše je správně, potvrdit</button>
+    <button type="button" class="btn main" id="rvOk" style="width:auto;flex:1">✅ Potvrdit a uložit</button>
   </div>
 </section>
 
 <section class="card" id="result" style="margin-top:16px">
-  <h2>✅ Objednávka je připravena</h2>
+  <h2 id="resultTitle">✅ Objednávka je připravena</h2>
   <p id="resultHelp" style="margin-top:0"></p>
   <textarea id="out" readonly></textarea>
   <div class="actions">
@@ -197,7 +197,7 @@ footer{position:relative;z-index:2;text-align:center;color:#fff;font-weight:800;
     <a class="btn sec" id="mail" style="text-decoration:none;display:none">✉️ Poslat e-mailem</a>
     <a class="btn sec" id="wa" style="text-decoration:none;display:none">💬 Poslat přes WhatsApp</a>
   </div>
-  <p class="hint">Objednávka se neodešle automaticky. Pošlete ji pořadateli jedním z tlačítek výše.</p>
+  <p class="hint" id="resultHint">Objednávka se neodešle automaticky. Pošlete ji pořadateli jedním z tlačítek výše.</p>
 </section>
 
 <section class="card" id="dbSec" style="margin-top:16px">
@@ -553,29 +553,33 @@ $("#rvOk").addEventListener("click", async ()=>{
       const j = await r.json();
       if (j && j.ok) sent = true;
       else if (j && j.taken && j.taken.length) {
-        btn.disabled = false; btn.textContent = "✅ Vše je správně, potvrdit";
+        btn.disabled = false; btn.textContent = "✅ Potvrdit a uložit";
         try { const g = await fetch(CONFIG.API_URL + "?action=orders&ts=" + Date.now()); const gj = await g.json(); if (gj && Array.isArray(gj.orders)) { applyBase(gj.orders); renderDb(); } } catch(e) {}
         showForm();
         return showErr("Číslo " + j.taken.join(", ") + " mezitím objednal někdo jiný. Vyberte prosím jiné číslo a objednávku odešlete znovu.");
       } else apiFail = true;
     } catch(e) { apiFail = true; }
-    btn.disabled = false; btn.textContent = "✅ Vše je správně, potvrdit";
+    btn.disabled = false; btn.textContent = "✅ Potvrdit a uložit";
   }
 
   $("#out").value = text;
   $("#resultHelp").textContent = sent
-    ? "✅ Objednávka byla odeslána pořadateli a vaše čísla jsou zablokována. Kód objednávky: " + code + ". Níže je kopie pro vaši potřebu."
+    ? "✅ Objednávka je uložena u pořadatele a vaše čísla jsou zablokována. Kód objednávky: " + code + ". Níže je kopie pro vaši potřebu."
     : apiFail
       ? "⚠️ Automatické odeslání se nepodařilo. Pošlete prosím text níže pořadateli ručně."
       : "Objednávka je potvrzená. Pošlete ji pořadateli jedním z tlačítek níže. Vaše čísla se zablokují po zpracování objednávky.";
   $("#resEdit").style.display = sent ? "none" : "";
+  $("#resultTitle").textContent = sent ? "✅ Objednávka je uložena" : "✅ Objednávka je připravena";
+  $("#resultHint").textContent = sent
+    ? "Nic dalšího posílat nemusíte, objednávka je u pořadatele. Kopii si můžete uložit pro jistotu."
+    : "Objednávka se neodešle automaticky. Pošlete ji pořadateli jedním z tlačítek výše.";
   show($("#review"),false); $("#result").style.display = "block";
 
   const subj = encodeURIComponent("Objednávka dresů – "+o.who+" ("+code+")");
   const mail = $("#mail");
-  if (CONFIG.EMAIL){ mail.href="mailto:"+CONFIG.EMAIL+"?subject="+subj+"&body="+encodeURIComponent(text); mail.style.display=""; }
+  if (CONFIG.EMAIL && !sent){ mail.href="mailto:"+CONFIG.EMAIL+"?subject="+subj+"&body="+encodeURIComponent(text); mail.style.display=""; }
   const wa = $("#wa");
-  if (CONFIG.WHATSAPP){ wa.href="https://wa.me/"+CONFIG.WHATSAPP+"?text="+encodeURIComponent(text); wa.style.display=""; }
+  if (CONFIG.WHATSAPP && !sent){ wa.href="https://wa.me/"+CONFIG.WHATSAPP+"?text="+encodeURIComponent(text); wa.style.display=""; }
   $("#result").scrollIntoView({behavior:"smooth"});
 });
 
