@@ -294,6 +294,8 @@ const priceOf = t => t==="set" ? CONFIG.PRICE_TOP+CONFIG.PRICE_SHORTS : t==="top
 const kc = n => n.toLocaleString("cs-CZ")+" Kč";
 const noDia = v => v.normalize("NFD").replace(/[\u0300-\u036f]/g,"").replace(/[đĐ]/g,"D").replace(/[łŁ]/g,"L").replace(/[^A-Za-z0-9 .\-]/g,"").toUpperCase();
 const takenSet = new Set();
+let SAVED = null; // {code, nums:Set} po úspěšném uložení – umožní úpravu stejné objednávky
+const isTaken = n => takenSet.has(n) && !(SAVED && SAVED.nums.has(n));
 const STORE_KEY = "dresy_orders_v1";
 let SIG = JSON.stringify(CONFIG.ORDERS);
 let ORDERS = JSON.parse(SIG);
@@ -400,7 +402,7 @@ function numState(val, seen){
   if (!/^\d{1,2}$/.test(val)) return {st:"bad", m:"Zadejte číslo."};
   const n = parseInt(val,10);
   if (n<CONFIG.MIN_NUMBER || n>CONFIG.MAX_NUMBER) return {st:"bad", m:"Číslo musí být "+CONFIG.MIN_NUMBER+"–"+CONFIG.MAX_NUMBER+"."};
-  if (takenSet.has(n)) return {st:"bad", m:"Číslo "+n+" už není k dispozici."};
+  if (isTaken(n)) return {st:"bad", m:"Číslo "+n+" už není k dispozici."};
   if (seen.has(n)) return {st:"bad", m:"Číslo "+n+" máte v objednávce už jednou."};
   return {st:"ok", m:"Číslo "+n+" je volné ✓", n};
 }
@@ -411,7 +413,7 @@ function buildDb(){
     const b = document.createElement("button");
     b.type = "button"; b.className = "gn"; b.dataset.n = n; b.textContent = n;
     b.addEventListener("click", ()=>{
-      if (takenSet.has(n)) return;
+      if (isTaken(n)) return;
       const nums = [...document.querySelectorAll(".item .num")];
       const target = (lastNum && document.body.contains(lastNum) && lastNum) || nums.find(x=>!x.value.trim()) || nums[nums.length-1];
       target.value = String(n);
@@ -456,9 +458,9 @@ function paintGrid(mine){
   lastMine = mine;
   document.querySelectorAll(".gn").forEach(b=>{
     const n = +b.dataset.n;
-    b.classList.toggle("taken", takenSet.has(n));
+    b.classList.toggle("taken", isTaken(n));
     b.classList.toggle("mine", mine.has(n));
-    b.disabled = takenSet.has(n);
+    b.disabled = isTaken(n);
   });
 }
 function checkNumbers(){
@@ -532,7 +534,8 @@ $("#rvOk").addEventListener("click", async ()=>{
   const o = ORDER; if(!o) return;
   const lines = o.list.map((x,i)=>(i+1)+") "+TYPE_LABEL[x.type]+" – "+kc(x.price)+"\n   Číslo: "+x.num+"\n   Jméno: "+x.name+
     (x.sj ? "\n   Velikost dresu: "+x.sj : "")+(x.ss ? "\n   Velikost kraťasů: "+x.ss : ""));
-  const code = CONFIG.CODE_PREFIX + "-" + Date.now().toString(36).toUpperCase().slice(-6);
+  const editing = !!SAVED;
+  const code = editing ? SAVED.code : CONFIG.CODE_PREFIX + "-" + Date.now().toString(36).toUpperCase().slice(-6);
   const text =
     "OBJEDNÁVKA DRESŮ – VÁNOČNÍ ZÁPAS\n" +
     "Kód: "+code+"\n" +
@@ -548,10 +551,10 @@ $("#rvOk").addEventListener("click", async ()=>{
   if (CONFIG.API_URL) {
     const btn = $("#rvOk"); btn.disabled = true; btn.textContent = "Odesílám…";
     try {
-      const payload = {code, who:o.who, contact:o.contact, sum:o.sum, items:o.list.map(x=>({num:x.num,name:x.name,type:x.type,sj:x.sj,ss:x.ss,price:x.price}))};
+      const payload = {code, replace: editing, who:o.who, contact:o.contact, sum:o.sum, items:o.list.map(x=>({num:x.num,name:x.name,type:x.type,sj:x.sj,ss:x.ss,price:x.price}))};
       const r = await fetch(CONFIG.API_URL, {method:"POST", body: JSON.stringify(payload)});
       const j = await r.json();
-      if (j && j.ok) sent = true;
+      if (j && j.ok) { sent = true; SAVED = {code, nums:new Set(o.list.map(x=>x.num))}; try { const g = await fetch(CONFIG.API_URL + "?action=orders&ts=" + Date.now()); const gj = await g.json(); if (gj && Array.isArray(gj.orders)) { applyBase(gj.orders); renderDb(); } } catch(e) {} }
       else if (j && j.taken && j.taken.length) {
         btn.disabled = false; btn.textContent = "✅ Potvrdit a uložit";
         try { const g = await fetch(CONFIG.API_URL + "?action=orders&ts=" + Date.now()); const gj = await g.json(); if (gj && Array.isArray(gj.orders)) { applyBase(gj.orders); renderDb(); } } catch(e) {}
@@ -568,10 +571,10 @@ $("#rvOk").addEventListener("click", async ()=>{
     : apiFail
       ? "⚠️ Automatické odeslání se nepodařilo. Pošlete prosím text níže pořadateli ručně."
       : "Objednávka je potvrzená. Pošlete ji pořadateli jedním z tlačítek níže. Vaše čísla se zablokují po zpracování objednávky.";
-  $("#resEdit").style.display = sent ? "none" : "";
+  $("#resEdit").textContent = sent ? "✏️ Upravit uloženou objednávku" : "✏️ Upravit objednávku";
   $("#resultTitle").textContent = sent ? "✅ Objednávka je uložena" : "✅ Objednávka je připravena";
   $("#resultHint").textContent = sent
-    ? "Nic dalšího posílat nemusíte, objednávka je u pořadatele. Kopii si můžete uložit pro jistotu."
+    ? "Nic dalšího posílat nemusíte, objednávka je u pořadatele. Když v ní něco chcete opravit, klepněte na „Upravit uloženou objednávku“ – uložená objednávka se přepíše."
     : "Objednávka se neodešle automaticky. Pošlete ji pořadateli jedním z tlačítek výše.";
   show($("#review"),false); $("#result").style.display = "block";
 
