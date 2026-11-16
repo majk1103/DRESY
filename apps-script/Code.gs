@@ -3,11 +3,12 @@
  * Vložte do Google tabulky: Rozšíření → Apps Script, uložte a nasaďte jako webovou aplikaci
  * (Spustit jako: Já, Přístup: Kdokoli).
  */
+const SPREADSHEET_ID = ''; // prázdné = tabulka, ke které je skript připojen; u samostatného skriptu vložte ID tabulky
 const SHEET_NAME = 'Objednavky';
 const HEADERS = ['Kód', 'Čas', 'Objednává', 'Kontakt', 'Číslo', 'Jméno', 'Typ', 'Velikost dresu', 'Velikost kraťasů', 'Cena (Kč)', 'Poznámka'];
 
 function sheet_() {
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const ss = SPREADSHEET_ID ? SpreadsheetApp.openById(SPREADSHEET_ID) : SpreadsheetApp.getActiveSpreadsheet();
   let sh = ss.getSheetByName(SHEET_NAME);
   if (!sh) {
     sh = ss.insertSheet(SHEET_NAME);
@@ -66,6 +67,6 @@ function doPost(e) {
   } catch (err) {
     return json_({ ok: false, error: String(err) });
   } finally {
-    lock.release();
+    lock.releaseLock();
   }
 }
