@@ -231,6 +231,9 @@ const CONFIG = {
   // Kam mají rodiče objednávku poslat (nechte prázdné = tlačítko se skryje)
   EMAIL: "",
   WHATSAPP: "",            // telefon včetně předvolby, bez + (např. 420777123456)
+  // Adresa webové aplikace z Google Apps Script (viz apps-script/Code.gs).
+  // Když je vyplněná, objednávky se samy ukládají do Google tabulky a čísla se hlídají živě.
+  API_URL: "",
   CODE_PREFIX: "DRES",     // předpona kódu objednávky
 
   // Už objednané dresy – doplňujte po každé zpracované objednávce
@@ -525,7 +528,7 @@ function renderReview(){
 $("#rvEdit").addEventListener("click", showForm);
 $("#resEdit").addEventListener("click", showForm);
 
-$("#rvOk").addEventListener("click", ()=>{
+$("#rvOk").addEventListener("click", async ()=>{
   const o = ORDER; if(!o) return;
   const lines = o.list.map((x,i)=>(i+1)+") "+TYPE_LABEL[x.type]+" – "+kc(x.price)+"\n   Číslo: "+x.num+"\n   Jméno: "+x.name+
     (x.sj ? "\n   Velikost dresu: "+x.sj : "")+(x.ss ? "\n   Velikost kraťasů: "+x.ss : ""));
@@ -540,8 +543,32 @@ $("#rvOk").addEventListener("click", ()=>{
     "Celkem za zboží: "+kc(o.sum)+" + doprava ("+CONFIG.SHIPPING_NOTE+")\n" +
     "Čísla k zablokování: "+o.list.map(x=>x.num).join(", ");
 
+  // automatické uložení do Google tabulky (pokud je nastaveno)
+  let sent = false, apiFail = false;
+  if (CONFIG.API_URL) {
+    const btn = $("#rvOk"); btn.disabled = true; btn.textContent = "Odesílám…";
+    try {
+      const payload = {code, who:o.who, contact:o.contact, sum:o.sum, items:o.list.map(x=>({num:x.num,name:x.name,type:x.type,sj:x.sj,ss:x.ss,price:x.price}))};
+      const r = await fetch(CONFIG.API_URL, {method:"POST", body: JSON.stringify(payload)});
+      const j = await r.json();
+      if (j && j.ok) sent = true;
+      else if (j && j.taken && j.taken.length) {
+        btn.disabled = false; btn.textContent = "✅ Vše je správně, potvrdit";
+        try { const g = await fetch(CONFIG.API_URL + "?action=orders&ts=" + Date.now()); const gj = await g.json(); if (gj && Array.isArray(gj.orders)) { applyBase(gj.orders); renderDb(); } } catch(e) {}
+        showForm();
+        return showErr("Číslo " + j.taken.join(", ") + " mezitím objednal někdo jiný. Vyberte prosím jiné číslo a objednávku odešlete znovu.");
+      } else apiFail = true;
+    } catch(e) { apiFail = true; }
+    btn.disabled = false; btn.textContent = "✅ Vše je správně, potvrdit";
+  }
+
   $("#out").value = text;
-  $("#resultHelp").textContent = "Objednávka je potvrzená. Pošlete ji pořadateli jedním z tlačítek níže. Vaše čísla se zablokují po zpracování objednávky.";
+  $("#resultHelp").textContent = sent
+    ? "✅ Objednávka byla odeslána pořadateli a vaše čísla jsou zablokována. Kód objednávky: " + code + ". Níže je kopie pro vaši potřebu."
+    : apiFail
+      ? "⚠️ Automatické odeslání se nepodařilo. Pošlete prosím text níže pořadateli ručně."
+      : "Objednávka je potvrzená. Pošlete ji pořadateli jedním z tlačítek níže. Vaše čísla se zablokují po zpracování objednávky.";
+  $("#resEdit").style.display = sent ? "none" : "";
   show($("#review"),false); $("#result").style.display = "block";
 
   const subj = encodeURIComponent("Objednávka dresů – "+o.who+" ("+code+")");
@@ -571,12 +598,20 @@ $("#pShip").textContent = "+ doprava. " + CONFIG.SHIPPING_NOTE;
 $("#add").addEventListener("click", addItem);
 buildDb();
 addItem();
-try {
-  fetch("orders.json?ts=" + Date.now(), {cache:"no-store"})
-    .then(r => r.ok ? r.json() : Promise.reject())
-    .then(a => { if (Array.isArray(a)) { applyBase(a); renderDb(); } })
-    .catch(() => {});
-} catch(e) {}
+(async function(){
+  if (CONFIG.API_URL) {
+    try {
+      const r = await fetch(CONFIG.API_URL + "?action=orders&ts=" + Date.now());
+      const j = await r.json();
+      if (j && Array.isArray(j.orders)) { applyBase(j.orders); renderDb(); return; }
+    } catch(e) {}
+  }
+  try {
+    const r = await fetch("orders.json?ts=" + Date.now(), {cache:"no-store"});
+    if (r.ok) { const a = await r.json(); if (Array.isArray(a)) { applyBase(a); renderDb(); } }
+  } catch(e) {}
+})();
+if (CONFIG.API_URL) { const t = document.getElementById("adminToggle"); if (t) t.parentElement.style.display = "none"; }
 
 function setAdmin(on){
   ADMIN = on;
